@@ -1279,6 +1279,47 @@ fn a_custom_property_is_deleted_from_an_info_dictionary_in_the_trailer() {
 }
 
 #[test]
+fn add_stops_at_the_256_custom_properties_the_tab_lists() {
+    let with_props = |count: usize| {
+        let entries: String = (0..count).map(|n| format!("/P{n:03} (v) ")).collect();
+        let pdf =
+            String::from_utf8(fixture(1)).unwrap().replace("/Root 1 0 R >>\nstartxref", &format!("/Root 1 0 R /Info << {entries}>> >>\nstartxref"));
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+            let mut app = PdfCraftApp::new();
+            app.set_option("language", "en").unwrap();
+            app.open_bytes("doc.pdf", None, pdf.into_bytes()).expect("fixture opens");
+            app.set_option("dialog", "custom").unwrap();
+            app
+        });
+        h.run_steps(4);
+        h
+    };
+    let add_disabled = |h: &Harness<'static, PdfCraftApp>| h.get_by_role_and_label(Role::Button, "Add").accesskit_node().is_disabled();
+
+    // 255 in the file: one more fits, a second does not.
+    let mut h = with_props(255);
+    type_into(&mut h, "Name:", "Client");
+    type_into(&mut h, "Value:", "Acme");
+    assert!(!add_disabled(&h));
+    h.get_by_role_and_label(Role::Button, "Add").click();
+    h.run_steps(3);
+    type_into(&mut h, "Name:", "Other");
+    type_into(&mut h, "Value:", "x");
+    assert!(add_disabled(&h), "the draft holds 256");
+    assert_eq!(h.state().custom_draft.as_ref().map(|(_, d)| d.props.len()), Some(256));
+
+    // 257 in the file: after a Delete a new name would still be past the 256 listed.
+    let mut h = with_props(257);
+    h.get_by_label("P000").click();
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::Button, "Delete").click();
+    h.run_steps(3);
+    type_into(&mut h, "Name:", "Client");
+    type_into(&mut h, "Value:", "Acme");
+    assert!(add_disabled(&h), "the file lists 256");
+}
+
+#[test]
 fn edit_menu_names_the_step_to_undo() {
     let mut h = harness(2, |app| {
         app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });

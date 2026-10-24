@@ -372,7 +372,8 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             let value = d.value.trim().to_owned();
                             let listed = d.props.iter().position(|(k, _)| *k == name);
                             // An entry the list leaves out (not text, only padding, or past its 256) keeps its value.
-                            let unlisted = doc.has_info(&name) && !doc.custom_info().iter().any(|(k, _)| *k == name);
+                            let file_props = doc.custom_info();
+                            let unlisted = doc.has_info(&name) && !file_props.iter().any(|(k, _)| *k == name);
                             let refused = pdfcraft_engine::check_custom_key(&name).err().filter(|_| !name.is_empty()).map(|e| e.to_string());
                             ui.label("");
                             // A file can hold a custom name that `check_custom_key` refuses, such as one
@@ -383,8 +384,11 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             };
                             // A name that isn't UTF-8 is listed with U+FFFD and can't be written back as it is.
                             let editable = editable && refused.is_none() && !name.contains(char::REPLACEMENT_CHARACTER);
+                            // `custom_info` lists at most 256 properties, and a new name goes after the file's
+                            // entries, so Add is off once the draft or the file's own list holds 256.
+                            let room = d.props.len() < 256 && file_props.len() < 256;
                             ui.horizontal(|ui| {
-                                let add = editable && listed.is_none() && !unlisted && !name.is_empty() && !value.is_empty();
+                                let add = editable && room && listed.is_none() && !unlisted && !name.is_empty() && !value.is_empty();
                                 if why(ui.add_enabled(add, egui::Button::new(tl!("Add")))).clicked() {
                                     d.props.push((name.clone(), value.clone()));
                                     d.name.clear();
