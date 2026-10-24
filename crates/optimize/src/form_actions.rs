@@ -19,13 +19,18 @@ const MAX_DEPTH: usize = 64;
 /// How many action values one object may make the walk look at.
 const MAX_STEPS: usize = 100_000;
 
+/// How many action values the walk may look at in the whole document.
+const MAX_TOTAL_STEPS: usize = 1_000_000;
+
 /// Remove every form submission, import and reset action. Returns how many the document held in
 /// action entries, each counted once: an indirect action however many entries refer to it, and a
 /// direct one in the object that holds it. Fails with [`OptimizeError::ActionLimit`] when an
 /// object holds a form action more than [`MAX_DEPTH`] direct objects deep, chains form actions
-/// more than [`MAX_DEPTH`] deep, or makes the walk look at more than [`MAX_STEPS`] action values.
+/// more than [`MAX_DEPTH`] deep, or makes the walk look at more than [`MAX_STEPS`] action values,
+/// or when the walk has looked at more than [`MAX_TOTAL_STEPS`] action values in the document.
 pub(crate) fn discard(doc: &mut Document) -> Result<usize, OptimizeError> {
     let mut count = Count::default();
+    let mut total = 0usize;
     for num in doc.object_numbers() {
         let r = ObjRef { num, generation: doc.generation(num) };
         let mut obj = match &*doc.get(r) {
@@ -33,8 +38,10 @@ pub(crate) fn discard(doc: &mut Document) -> Result<usize, OptimizeError> {
             _ => continue,
         };
         count.object(doc, &obj, 0);
-        let mut walk = Walk { changed: false, steps: 0, exhausted: false, chain: HashSet::new() };
+        let limit = MAX_STEPS.min(MAX_TOTAL_STEPS - total);
+        let mut walk = Walk { changed: false, steps: 0, limit, exhausted: false, chain: HashSet::new(), looped: false };
         walk.clean(doc, &mut obj, 0);
+        total += walk.steps.min(limit);
         if walk.exhausted {
             return Err(OptimizeError::ActionLimit(r));
         }
@@ -139,10 +146,15 @@ struct Walk {
     /// Whether the object changed.
     changed: bool,
     steps: usize,
+    /// How many action values this object's walk may look at: [`MAX_STEPS`], or what is left of
+    /// [`MAX_TOTAL_STEPS`] when that is less.
+    limit: usize,
     /// Whether a limit stopped the walk before it looked at everything.
     exhausted: bool,
-    /// Indirect form actions on the path of the chain being followed.
+    /// Indirect form actions and indirect arrays on the path of the chain being followed.
     chain: HashSet<ObjRef>,
+    /// Whether the entry being cleaned holds an indirect array that lists itself.
+    looped: bool,
 }
 
 impl Walk {
@@ -226,10 +238,17 @@ impl Walk {
         }
     }
 
-    /// [`Walk::without`] for one action entry; marks the object changed when it changes.
+    /// [`Walk::without`] for one action entry; marks the object changed when it changes. An entry
+    /// that changes while it holds an array that lists itself stops the walk when what is left
+    /// still reaches a form action through that array.
     fn take(&mut self, doc: &Document, v: &Object) -> Option<Vec<Object>> {
         self.chain.clear();
+        self.looped = false;
         let rest = self.without(doc, v, 0)?;
+        if self.looped && self.reaches_form_action(doc, &rest) {
+            self.exhausted = true;
+            return None;
+        }
         self.changed = true;
         Some(rest)
     }
@@ -239,7 +258,7 @@ impl Walk {
     /// changes (the value is kept as it is, references included).
     fn without(&mut self, doc: &Document, v: &Object, depth: usize) -> Option<Vec<Object>> {
         self.steps += 1;
-        if depth > MAX_DEPTH || self.steps > MAX_STEPS {
+        if depth > MAX_DEPTH || self.steps > self.limit {
             self.exhausted = true;
             return None;
         }
@@ -269,6 +288,15 @@ impl Walk {
                 Some(rest)
             }
             Object::Array(items) => {
+                let r = v.as_ref();
+                // An indirect array that lists itself, directly or through other arrays, is left
+                // as it is where it comes back.
+                if let Some(r) = r
+                    && !self.chain.insert(r)
+                {
+                    self.looped = true;
+                    return None;
+                }
                 let mut out = Vec::new();
                 let mut changed = false;
                 for item in items {
@@ -280,10 +308,55 @@ impl Walk {
                         None => out.push(item.clone()),
                     }
                 }
+                if let Some(r) = r {
+                    self.chain.remove(&r);
+                }
                 changed.then_some(out)
             }
             _ => None,
         }
+    }
+
+    /// Whether `items`, or an indirect array they list, lists a form action. Each value looked at
+    /// counts as a step.
+    fn reaches_form_action(&mut self, doc: &Document, items: &[Object]) -> bool {
+        let mut seen = HashSet::new();
+        let mut pending = Vec::new();
+        if self.lists_form_action(doc, items, &mut seen, &mut pending) {
+            return true;
+        }
+        while let Some(r) = pending.pop() {
+            if let Object::Array(items) = &*doc.get(r)
+                && self.lists_form_action(doc, items, &mut seen, &mut pending)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether `items`, or a direct array inside them, lists a form action; indirect arrays not
+    /// yet seen go to `pending`.
+    fn lists_form_action(&mut self, doc: &Document, items: &[Object], seen: &mut HashSet<ObjRef>, pending: &mut Vec<ObjRef>) -> bool {
+        let mut stack: Vec<&Object> = items.iter().collect();
+        while let Some(item) = stack.pop() {
+            self.steps += 1;
+            if self.steps > self.limit {
+                self.exhausted = true;
+                return false;
+            }
+            match item {
+                Object::Dict(a) if is_form_action(doc, a) => return true,
+                Object::Array(inner) => stack.extend(inner.iter()),
+                Object::Ref(r) => match &*doc.get(*r) {
+                    Object::Dict(a) if is_form_action(doc, a) => return true,
+                    Object::Array(_) if seen.insert(*r) => pending.push(*r),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        false
     }
 }
 

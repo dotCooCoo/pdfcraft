@@ -39,7 +39,7 @@ pub use images::effective_resolutions;
 pub enum OptimizeError {
     #[error("the document has no page tree")]
     NoPages,
-    #[error("object {0} nests or chains its form actions too deeply to discard them")]
+    #[error("object {0} nests or chains its form actions too deeply, or the document holds too many actions, to discard them")]
     ActionLimit(ObjRef),
     #[error(transparent)]
     Cos(#[from] pdfcraft_cos::CosError),

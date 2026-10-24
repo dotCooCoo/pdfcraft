@@ -338,6 +338,69 @@ fn form_actions_chained_past_the_limit_stop_the_optimization() {
     assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(at)) if at == root), "{r:?}");
 }
 
+#[test]
+fn a_next_array_that_lists_itself_is_left_as_it_is() {
+    let mut doc = Document::new_empty();
+    let p = page(&mut doc, &[], "");
+    let looped = doc.add(Object::Null);
+    doc.set(looped, Object::Array(vec![Object::Ref(looped)]));
+    let (first, second) = (doc.add(Object::Null), doc.add(Object::Null));
+    doc.set(first, Object::Array(vec![Object::Ref(second)]));
+    doc.set(second, Object::Array(vec![Object::Ref(first)]));
+    let link = |doc: &mut Document, next: ObjRef| {
+        let a = with(action("GoTo"), "Next", Object::Ref(next));
+        doc.add(Object::Dict(with(with(Dict::new(), "Subtype", Object::name("Link")), "A", a)))
+    };
+    let (own, pair) = (link(&mut doc, looped), link(&mut doc, first));
+    let submit = with(action("SubmitForm"), "Next", Object::Ref(looped));
+    let button = doc.add(Object::Dict(with(with(Dict::new(), "Subtype", Object::name("Widget")), "A", submit)));
+    doc.update_dict(p, |d| d.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(own), Object::Ref(pair), Object::Ref(button)]))).unwrap();
+    let settings = Settings { discard_form_actions: true, ..Settings::default() };
+
+    let mut cleaned = doc.clone();
+    let r = optimize(&mut cleaned, &settings).unwrap();
+    assert_eq!(r.form_actions, 1, "{r:?}");
+    for (l, next) in [(own, looped), (pair, first)] {
+        let a = dict(&cleaned, l).get(b"A").and_then(|a| a.as_dict().cloned()).unwrap();
+        assert_eq!(a.get(b"Next"), Some(&Object::Ref(next)), "{l:?}");
+    }
+    assert_eq!(dict(&cleaned, button).get(b"A"), Some(&Object::Ref(looped)), "the submit's /Next takes its place");
+
+    // An array that lists itself and a submit, directly or in an array inside it: a cleaned copy
+    // would still reach the submit.
+    for submit in [Object::Dict(action("SubmitForm")), Object::Array(vec![Object::Dict(action("SubmitForm"))])] {
+        let mut mixed = doc.clone();
+        mixed.set(first, Object::Array(vec![Object::Ref(second), submit]));
+        let r = optimize(&mut mixed, &settings);
+        assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
+    }
+}
+
+/// `referrers` actions whose `/Next` is one shared array of 2,000 actions, a submit among them.
+fn shared_next_array(referrers: usize) -> Document {
+    let mut doc = Document::new_empty();
+    page(&mut doc, &[], "");
+    let script = doc.add(Object::Dict(action("JavaScript")));
+    let mut items = vec![Object::Ref(script); 1_999];
+    items.push(Object::Dict(action("SubmitForm")));
+    let shared = doc.add(Object::Array(items));
+    for _ in 0..referrers {
+        doc.add(Object::Dict(with(action("GoTo"), "Next", Object::Ref(shared))));
+    }
+    doc
+}
+
+#[test]
+fn a_shared_next_array_cleaned_for_too_many_actions_stops_the_optimization() {
+    let settings = Settings { discard_form_actions: true, ..Settings::default() };
+    let mut doc = shared_next_array(400);
+    assert_eq!(optimize(&mut doc, &settings).unwrap().form_actions, 1);
+    // Each referrer is under the limit for one object; together they pass the document's.
+    let mut doc = shared_next_array(600);
+    let r = optimize(&mut doc, &settings);
+    assert!(matches!(r, Err(pdfcraft_optimize::OptimizeError::ActionLimit(_))), "{r:?}");
+}
+
 /// 80 direct dictionaries nested in each other under `/Deep`, the innermost one being `inner`.
 fn nested(inner: Dict) -> Object {
     let mut o = Object::Dict(inner);
