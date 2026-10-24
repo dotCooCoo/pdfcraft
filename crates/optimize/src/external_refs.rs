@@ -265,6 +265,9 @@ fn strip_action(doc: &mut Document, a: &Object, owner: ObjRef) -> Result<Option<
     if walk.removed == 0 && !walk.cut {
         return Ok(None);
     }
+    // A null or a reference to something other than an action cannot lead the chain.
+    let head = v.iter().position(|o| doc.resolve(o).as_dict().is_some()).unwrap_or(v.len());
+    v.drain(..head);
     if v.is_empty() {
         return Ok(Some(None));
     }

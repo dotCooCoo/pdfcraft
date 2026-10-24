@@ -624,6 +624,31 @@ fn an_action_to_another_document_hands_its_place_to_the_actions_after_it() {
 }
 
 #[test]
+fn entries_that_are_not_actions_do_not_take_the_place_of_a_removed_action() {
+    let (doc, p, items) = linked_doc(
+        |doc, _| {
+            // A null, then a reference to an empty object, before the web link.
+            let empty = doc.add(Object::Null);
+            let next = Object::Array(vec![Object::Null, Object::Ref(empty), action("URI", None), Object::Null]);
+            vec![link_with(Some(action("GoToR", Some(next))), None)]
+        },
+        &[
+            action("Launch", Some(Object::Array(vec![Object::Null, action("URI", None)]))),
+            action("GoToR", Some(Object::Array(vec![Object::Null, Object::Null]))),
+        ],
+    );
+    let mut doc = doc;
+    let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+    assert_eq!((report.external_links, report.external_bookmarks), (1, 2), "{report:?}");
+    let links = annots_of(&doc, p);
+    assert_eq!(links.len(), 1, "the link keeps its web link, so it stays on the page");
+    assert_eq!(chain(&doc, links[0].get(b"A").unwrap()), ["URI"]);
+    let bookmark = |r: ObjRef| doc.get(r).as_dict().unwrap().clone();
+    assert_eq!(chain(&doc, bookmark(items[0]).get(b"A").unwrap()), ["URI"]);
+    assert!(bookmark(items[1]).get(b"A").is_none(), "a chain of nulls alone leaves no action");
+}
+
+#[test]
 fn a_chain_deeper_than_the_limit_loses_its_tail_and_one_without_a_remote_action_stays() {
     let deep = |n: usize, last: &str| (0..n).fold(action(last, None), |next, _| action("URI", Some(next)));
     let (doc, p, _) = linked_doc(|_, _| vec![link_with(Some(deep(600, "GoToR")), None), link_with(Some(deep(600, "Named")), None)], &[]);

@@ -168,8 +168,9 @@ pub struct Settings {
     pub remove_invalid_links: bool,
     /// Clean Up: remove named destinations nothing refers to.
     pub remove_unreferenced_dests: bool,
-    /// Discard User Data: take `GoToR`, `GoToE` and `Launch` actions out of links and bookmarks;
-    /// a link left with nothing to do is removed. Links within the document and web links stay.
+    /// Discard User Data: take `GoToR`, `GoToE`, `Launch` and `ImportData` actions, and `Thread`
+    /// actions with an `/F`, out of links and bookmarks; a link left with nothing to do is
+    /// removed. Links within the document and web links stay.
     pub discard_external_refs: bool,
 }
 
