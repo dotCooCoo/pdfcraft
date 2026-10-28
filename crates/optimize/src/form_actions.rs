@@ -2,7 +2,7 @@
 //! `/ResetForm`). The fields, buttons, links, bookmarks and pages that ran them stay; a removed
 //! action's `/Next` actions take its place, so the rest of a chain still runs in order.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use pdfcraft_cos::{Dict, Document, ObjRef, Object};
 
@@ -29,17 +29,24 @@ const MAX_TOTAL_STEPS: usize = 1_000_000;
 /// more than [`MAX_DEPTH`] deep, or makes the walk look at more than [`MAX_STEPS`] action values,
 /// or when the walk has looked at more than [`MAX_TOTAL_STEPS`] action values in the document.
 pub(crate) fn discard(doc: &mut Document) -> Result<usize, OptimizeError> {
+    let numbers = doc.object_numbers();
     let mut count = Count::default();
+    for &num in &numbers {
+        let r = ObjRef { num, generation: doc.generation(num) };
+        if let o @ (Object::Dict(_) | Object::Array(_)) = &*doc.get(r) {
+            count.object(doc, o, 0);
+        }
+    }
     let mut total = 0usize;
-    for num in doc.object_numbers() {
+    for num in numbers {
         let r = ObjRef { num, generation: doc.generation(num) };
         let mut obj = match &*doc.get(r) {
             o @ (Object::Dict(_) | Object::Array(_)) => o.clone(),
             _ => continue,
         };
-        count.object(doc, &obj, 0);
         let limit = MAX_STEPS.min(MAX_TOTAL_STEPS - total);
-        let mut walk = Walk { changed: false, steps: 0, limit, exhausted: false, chain: HashSet::new(), looped: false };
+        let mut walk =
+            Walk { this: r, changed: false, steps: 0, limit, exhausted: false, chain: HashSet::new(), looped: false, writes: HashMap::new() };
         walk.clean(doc, &mut obj, 0);
         total += walk.steps.min(limit);
         if walk.exhausted {
@@ -47,6 +54,9 @@ pub(crate) fn discard(doc: &mut Document) -> Result<usize, OptimizeError> {
         }
         if walk.changed {
             doc.set(r, obj);
+        }
+        for (shared, cleaned) in walk.writes {
+            doc.set(shared, cleaned);
         }
     }
     Ok(count.direct + count.indirect.len())
@@ -143,6 +153,8 @@ impl Count {
 }
 
 struct Walk {
+    /// The object being walked.
+    this: ObjRef,
     /// Whether the object changed.
     changed: bool,
     steps: usize,
@@ -155,6 +167,9 @@ struct Walk {
     chain: HashSet<ObjRef>,
     /// Whether the entry being cleaned holds an indirect array that lists itself.
     looped: bool,
+    /// Cleaned replacements for indirect actions, `/Next` arrays and `/AA` dictionaries that
+    /// action entries of this object refer to, written over them after the walk.
+    writes: HashMap<ObjRef, Object>,
 }
 
 impl Walk {
@@ -180,30 +195,29 @@ impl Walk {
     fn clean_dict(&mut self, doc: &Document, d: &mut Dict, depth: usize) {
         for key in ACTION_KEYS {
             if let Some(v) = d.get(key)
+                && let shared = v.as_ref()
                 && let Some(rest) = self.take(doc, v)
             {
-                match chain(doc, rest) {
-                    Some(a) => d.set(key.to_vec(), a),
-                    None => {
-                        d.remove(key);
-                    }
-                }
+                let a = chain(doc, rest);
+                self.put(doc, d, key, shared, a, depth);
             }
         }
         if let Some(v) = d.get(b"Next")
+            && let shared = v.as_ref()
             && let Some(mut rest) = self.take(doc, v)
         {
-            match rest.len() {
-                0 => {
-                    d.remove(b"Next");
-                }
-                1 => d.set(b"Next".to_vec(), rest.remove(0)),
-                _ => d.set(b"Next".to_vec(), Object::Array(rest)),
-            }
+            let next = match rest.len() {
+                0 => None,
+                1 => Some(rest.remove(0)),
+                // An action that other entries may run as their `/A` stays a dictionary.
+                _ if shared.is_some_and(|r| doc.get(r).as_dict().is_some()) => chain(doc, rest),
+                _ => Some(Object::Array(rest)),
+            };
+            self.put(doc, d, b"Next", shared, next, depth);
         }
-        // Additional actions: each trigger holds one action. An indirect dictionary is copied in
-        // when it changes, so other objects that share it keep theirs.
+        // Additional actions: each trigger holds one action.
         if let Some(aa) = d.get(b"AA")
+            && let shared = aa.as_ref()
             && let Object::Dict(t) = &*doc.resolve(aa)
         {
             let mut triggers = t.clone();
@@ -223,11 +237,8 @@ impl Walk {
                 }
             }
             if changed {
-                if triggers.is_empty() {
-                    d.remove(b"AA");
-                } else {
-                    d.set(b"AA".to_vec(), Object::Dict(triggers));
-                }
+                let aa = (!triggers.is_empty()).then_some(Object::Dict(triggers));
+                self.put(doc, d, b"AA", shared, aa, depth);
             }
         }
         let keys: Vec<Vec<u8>> = d.iter().map(|(k, _)| k.to_vec()).collect();
@@ -235,6 +246,26 @@ impl Walk {
             if let Some(v) = d.get_mut(&key) {
                 self.clean(doc, v, depth + 1);
             }
+        }
+    }
+
+    /// Set entry `key` of `d` to its cleaned value, or remove it when nothing is left. When the
+    /// entry referred to indirect object `shared` and the cleaned value is a direct object, the
+    /// value (with the form actions inside it taken out too) replaces `shared` and the entry keeps
+    /// its reference, so the objects that share it share one cleaned copy. An entry that refers to
+    /// an object already replaced, or being cleaned, keeps its reference.
+    fn put(&mut self, doc: &Document, d: &mut Dict, key: &[u8], shared: Option<ObjRef>, value: Option<Object>, depth: usize) {
+        match (shared, value) {
+            (_, None) => {
+                d.remove(key);
+            }
+            (Some(r), Some(_)) if self.writes.contains_key(&r) => {}
+            (Some(r), Some(mut v)) if r != self.this && !matches!(v, Object::Ref(_)) => {
+                self.writes.insert(r, Object::Null);
+                self.clean(doc, &mut v, depth + 1);
+                self.writes.insert(r, v);
+            }
+            (_, Some(v)) => d.set(key.to_vec(), v),
         }
     }
 
