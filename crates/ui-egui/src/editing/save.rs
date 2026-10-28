@@ -105,6 +105,7 @@ impl PdfCraftApp {
                         view.document_changed(&doc.info);
                         // `redactions_applied` stays set: the document keeps its name here, so
                         // later downloads are named after the redacted copy too.
+                        view.redactions_downloaded = view.redactions_applied;
                     }
                     // The host reports where the file went (and any failure) itself.
                     if !to_host {
