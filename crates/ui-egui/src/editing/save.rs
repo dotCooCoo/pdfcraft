@@ -51,7 +51,10 @@ impl PdfCraftApp {
         // After Apply redactions, Save asks where and proposes the name with `_Redacted`.
         let redacted = self.views.get(index).is_some_and(|v| v.redactions_applied > 0);
         let name = if redacted { pdfcraft_engine::redacted_file_name(&name) } else { name };
-        let target = if redacted { SaveTarget::As } else { target };
+        // Undo past a saved Apply redactions brings back content that the file on disk has
+        // redacted: ask where instead of writing it over that file.
+        let unredacted = self.views.get(index).is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off);
+        let target = if redacted || unredacted { SaveTarget::As } else { target };
         #[cfg(not(target_arch = "wasm32"))]
         {
             let doc_path = path.clone();
@@ -205,6 +208,8 @@ impl PdfCraftApp {
                     // Saving over a version that changed on disk keeps this one: nothing to ask.
                     view.disk_changed = false;
                     view.redactions_applied = 0;
+                    view.redactions_undone_after_save = 0;
+                    view.saved_redactions_cut_off = false;
                 }
                 self.notify_fmt("Saved {name}", &[("name", &short_name(dest))]);
                 #[cfg(target_os = "macos")]

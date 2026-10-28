@@ -1685,6 +1685,11 @@ fn finish_redactions_and_fields(app: &mut PdfCraftApp, req: &mut Pending) {
             if app.apply_edit(Edit::ApplyRedactions { pages: None }) {
                 if let Some(view) = app.active.and_then(|i| app.views.get_mut(i)) {
                     view.redactions_applied = view.redactions_applied.saturating_add(1);
+                    // A new step clears the redo history, so the undone saved steps can't come back.
+                    if view.redactions_undone_after_save > 0 {
+                        view.redactions_undone_after_save = 0;
+                        view.saved_redactions_cut_off = true;
+                    }
                 }
                 if marks == 1 {
                     app.notify_tr("Applied 1 redaction mark. Save to remove the content from the file.");

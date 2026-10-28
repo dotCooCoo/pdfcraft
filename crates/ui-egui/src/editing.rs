@@ -221,8 +221,15 @@ impl PdfCraftApp {
                 }
                 self.views[i].comments.selected = None;
                 if label == (Edit::ApplyRedactions { pages: None }).label() {
-                    let applied = &mut self.views[i].redactions_applied;
-                    *applied = if undo { applied.saturating_sub(1) } else { applied.saturating_add(1) };
+                    let view = &mut self.views[i];
+                    let (applied, undone) = (view.redactions_applied, view.redactions_undone_after_save);
+                    // Undo past the last save counts as undone; Redo first takes those back.
+                    match (undo, applied, undone) {
+                        (true, 0, _) => view.redactions_undone_after_save = undone.saturating_add(1),
+                        (true, _, _) => view.redactions_applied = applied.saturating_sub(1),
+                        (false, _, 0) => view.redactions_applied = applied.saturating_add(1),
+                        (false, _, _) => view.redactions_undone_after_save = undone.saturating_sub(1),
+                    }
                 }
                 let label = crate::i18n::edit_label(&label);
                 if undo {

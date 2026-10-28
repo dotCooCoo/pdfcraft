@@ -56,6 +56,8 @@ impl PdfCraftApp {
                     view.pending_edit = None;
                     // The redactions applied since the last save are discarded too.
                     view.redactions_applied = 0;
+                    view.redactions_undone_after_save = 0;
+                    view.saved_redactions_cut_off = false;
                 }
                 self.notify_tr("Reverted to the last saved version");
             }
