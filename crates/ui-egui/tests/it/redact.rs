@@ -103,7 +103,7 @@ fn saving_after_applying_redactions_asks_where() {
     h.get_by_label("Apply").click();
     h.run_steps(4);
     assert_eq!(marks(&h), 0);
-    assert!(h.state().views[0].redacted);
+    assert_eq!(h.state().views[0].redactions_applied, 1);
     let copy = dir.join("contract_Redacted.pdf");
     h.state_mut().pick_override = Some(vec![copy.to_string_lossy().into_owned()]);
     assert!(!h.state_mut().save_active(SaveTarget::InPlace), "Save asks where first");
@@ -112,9 +112,94 @@ fn saving_after_applying_redactions_asks_where() {
     assert!(copy.exists(), "the redacted copy is written where the user chose");
     let s = h.state();
     assert_eq!(s.session.get(s.views[0].id).unwrap().name, "contract_Redacted.pdf");
-    assert!(!s.views[0].redacted);
+    assert_eq!(s.views[0].redactions_applied, 0);
     h.state_mut().pick_override = None;
     assert!(h.state_mut().save_active(SaveTarget::InPlace), "the next Save writes the copy in place");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Undo of Apply redactions brings back Save in place; Redo makes Save ask where again.
+#[test]
+fn undoing_apply_redactions_saves_in_place_again() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-redacted-undo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("contract.pdf");
+    std::fs::write(&original, include_bytes!("../data/form.pdf")).unwrap();
+    let path = original.to_string_lossy().into_owned();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_path(&path);
+        app
+    });
+    crate::support::settle(&mut h);
+    for _ in 0..2 {
+        h.state_mut().execute("redact.pages");
+        h.run_steps(2);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert!(h.state_mut().execute("redact.apply"));
+        h.run_steps(2);
+        h.get_by_label("Apply").click();
+        h.run_steps(4);
+    }
+    assert_eq!(h.state().views[0].redactions_applied, 2);
+    h.state_mut().execute("edit.undo");
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].redactions_applied, 1, "the first Apply redactions is still in effect");
+    // Undoing the second mark leaves the first Apply redactions in effect.
+    h.state_mut().execute("edit.undo");
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].redactions_applied, 1);
+    h.state_mut().execute("edit.undo");
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].redactions_applied, 0);
+    h.state_mut().execute("edit.redo");
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].redactions_applied, 1);
+    h.state_mut().execute("edit.undo");
+    h.run_steps(3);
+    assert!(h.state_mut().save_active(SaveTarget::InPlace), "with the redactions undone, Save writes in place");
+    let s = h.state();
+    assert_eq!(s.session.get(s.views[0].id).unwrap().name, "contract.pdf");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// File ▸ Revert discards the applied redactions, so Save writes the opened file in place again.
+#[test]
+fn reverting_after_apply_redactions_saves_in_place_again() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-redacted-revert-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("contract.pdf");
+    std::fs::write(&original, include_bytes!("../data/form.pdf")).unwrap();
+    let path = original.to_string_lossy().into_owned();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_path(&path);
+        app
+    });
+    crate::support::settle(&mut h);
+    h.state_mut().execute("redact.pages");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state_mut().execute("redact.apply"));
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    assert_eq!(h.state().views[0].redactions_applied, 1);
+    assert!(h.state_mut().execute("file.revert"));
+    h.run_steps(2);
+    assert_eq!(h.state().dialog, Some(Dialog::Revert));
+    h.get_all_by_label("Revert").last().expect("the button").click();
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].redactions_applied, 0);
+    assert!(h.state_mut().save_active(SaveTarget::InPlace), "after Revert, Save writes in place");
+    let s = h.state();
+    assert_eq!(s.session.get(s.views[0].id).unwrap().name, "contract.pdf");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

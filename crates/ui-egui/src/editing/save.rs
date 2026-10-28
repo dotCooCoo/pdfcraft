@@ -49,12 +49,12 @@ impl PdfCraftApp {
         let Some(doc) = self.session.get(id) else { return false };
         let (name, path) = (doc.name.clone(), doc.path.clone());
         // After Apply redactions, Save asks where and proposes the name with `_Redacted`.
-        let redacted = self.views.get(index).is_some_and(|v| v.redacted);
+        let redacted = self.views.get(index).is_some_and(|v| v.redactions_applied > 0);
         let name = if redacted { pdfcraft_engine::redacted_file_name(&name) } else { name };
+        let target = if redacted { SaveTarget::As } else { target };
         #[cfg(not(target_arch = "wasm32"))]
         {
             let doc_path = path.clone();
-            let target = if redacted { SaveTarget::As } else { target };
             let destination = match (target, path, &self.save_override) {
                 (_, _, Some(p)) => p.clone(),
                 // An email attachment's temporary copy is no place to keep work: ask, as for a new
@@ -100,8 +100,8 @@ impl PdfCraftApp {
                         && let Some(view) = self.views.get_mut(index)
                     {
                         view.document_changed(&doc.info);
-                        // `redacted` stays set: the document keeps its name here, so later
-                        // downloads are named after the redacted copy too.
+                        // `redactions_applied` stays set: the document keeps its name here, so
+                        // later downloads are named after the redacted copy too.
                     }
                     // The host reports where the file went (and any failure) itself.
                     if !to_host {
@@ -204,7 +204,7 @@ impl PdfCraftApp {
                     view.document_changed(&doc.info);
                     // Saving over a version that changed on disk keeps this one: nothing to ask.
                     view.disk_changed = false;
-                    view.redacted = false;
+                    view.redactions_applied = 0;
                 }
                 self.notify_fmt("Saved {name}", &[("name", &short_name(dest))]);
                 #[cfg(target_os = "macos")]

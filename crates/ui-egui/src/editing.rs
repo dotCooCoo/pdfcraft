@@ -220,6 +220,10 @@ impl PdfCraftApp {
                     self.views[i].document_changed(&doc.info);
                 }
                 self.views[i].comments.selected = None;
+                if label == (Edit::ApplyRedactions { pages: None }).label() {
+                    let applied = &mut self.views[i].redactions_applied;
+                    *applied = if undo { applied.saturating_sub(1) } else { applied.saturating_add(1) };
+                }
                 let label = crate::i18n::edit_label(&label);
                 if undo {
                     self.notify_fmt("Undid {label}", &[("label", &label)]);
