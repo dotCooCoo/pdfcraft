@@ -4927,6 +4927,21 @@ fn take_js_errors_leaves_the_alerts_for_take_js_output() {
 }
 
 #[test]
+fn take_js_errors_reports_a_document_scripts_error_again_on_the_next_edit() {
+    let helpers =
+        "function times\\(a, b\\) { return a * b; } this.getField\\('go'\\).buttonSetIcon\\(this.getField\\('go'\\).buttonGetIcon\\(\\)\\);";
+    let mut s = Session::new().with_clock(|| 1_700_000_000);
+    let id = s.open("order.pdf", None, Arc::new(scripted_form_with(helpers)), None).unwrap();
+    let _ = s.take_js_errors(id);
+    for qty in ["4", "5"] {
+        s.apply(id, Edit::SetFieldValue { name: "qty".into(), value: FieldValue::Text(qty.into()) }).unwrap();
+        let errors = s.take_js_errors(id);
+        assert_eq!(errors.len(), 1, "qty {qty}: {errors:?}");
+        assert!(errors[0].starts_with("document script 1: TypeError"), "qty {qty}: {errors:?}");
+    }
+}
+
+#[test]
 fn active_xfa_without_template_scripts_does_not_initialize_pdf_fallback_scripts() {
     let template = r#"<template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
 <subform name="form" layout="tb"><pageSet><pageArea name="page">

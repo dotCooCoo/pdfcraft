@@ -321,10 +321,12 @@ impl Session {
     }
 
     /// The script errors not taken yet, out of what [`Session::take_js_output`] returns; the
-    /// alerts, console lines and requests stay for that call. Until that call, a document
-    /// script's error taken here is not repeated when the document scripts run again.
+    /// alerts, console lines and requests stay for that call. A document script's error taken
+    /// here is reported again when the document scripts fail again on a later edit.
     pub fn take_js_errors(&mut self, id: DocId) -> Vec<String> {
-        self.docs.iter_mut().find(|d| d.id == id).map(|d| std::mem::take(&mut d.js_output.errors)).unwrap_or_default()
+        let Some(d) = self.docs.iter_mut().find(|d| d.id == id) else { return Vec::new() };
+        d.js_output.doc_errors.clear();
+        std::mem::take(&mut d.js_output.errors)
     }
 }
 
