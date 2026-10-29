@@ -7519,7 +7519,7 @@ fn an_xfa_click_through_js_run_does_not_return_an_earlier_fills_alerts() {
     // 500 fails qty's validation, which shows its message.
     ok(&mut a, "form_fill", json!({ "doc": doc, "values": { "qty": "500" } }));
     let r = ok(&mut a, "js_run", json!({ "doc": doc, "script": "", "field": "hello" }));
-    assert_eq!(r["alerts"], json!(["Hello 500"]), "{r}");
+    assert_eq!(r["alerts"], json!([{ "message": "Hello 500", "title": null, "icon": "error", "buttons": "ok" }]), "{r}");
     let _ = std::fs::remove_dir_all(dir);
 }
 
