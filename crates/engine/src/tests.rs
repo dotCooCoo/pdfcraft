@@ -6515,10 +6515,10 @@ fn an_xfa_click_returns_only_its_own_script_output() {
     let mut s = Session::new();
     let id = s.open("xfa.pdf", None, Arc::new(pdfcraft_xfa::fixtures::shell(&template)), None).unwrap();
     let o = s.run_javascript(id, "", Some("hello")).unwrap();
-    assert_eq!(o.alerts, ["Hello 2"]);
+    assert_eq!(o.alerts.iter().map(|a| a.text.as_str()).collect::<Vec<_>>(), ["Hello 2"]);
     assert!(o.error.is_none(), "{o:?}");
     let out = s.take_js_output(id);
-    assert_eq!(out.alerts, ["opened"]);
+    assert_eq!(out.alerts.iter().map(|a| a.text.as_str()).collect::<Vec<_>>(), ["opened"]);
     assert!(out.errors.iter().any(|e| e.contains("open failed")), "{out:?}");
     // A click whose script fails returns that error, and the next click does not repeat it.
     let broken =
