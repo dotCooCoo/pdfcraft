@@ -5104,7 +5104,8 @@ fn active_xfa_does_not_run_pdf_container_scripts_but_keeps_requested_alerts() {
 fn take_js_errors_leaves_the_alerts_for_take_js_output() {
     let template = pdfcraft_xfa::fixtures::scripted_template()
         .replace("if (qty.rawValue === null) qty.rawValue = 2;", "qty.rawValue = 2; xfa.host.messageBox('opened'); throw new Error('open failed');");
-    let mut s = Session::new();
+    // Raised time limits: a busy machine does not stop the scripts this checks.
+    let mut s = Session::new().with_xfa_time_scale(100);
     let id = s.open("xfa.pdf", None, Arc::new(pdfcraft_xfa::fixtures::shell(&template)), None).unwrap();
     let errors = s.take_js_errors(id);
     assert!(errors.iter().any(|e| e.contains("open failed")), "{errors:?}");

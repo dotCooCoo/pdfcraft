@@ -7706,7 +7706,8 @@ fn doc_open_and_form_fill_report_the_errors_of_the_forms_scripts() {
             "<calculate><script contentType=\"application/x-javascript\">if (qty.rawValue == 4) throw new Error('fill failed'); qty.rawValue * price.rawValue</script></calculate>",
         );
     std::fs::write(dir.join("errors.pdf"), pdfcraft_xfa::fixtures::shell(&tpl)).unwrap();
-    let mut a = auto(&dir);
+    // Raised time limits: a busy machine does not stop the scripts this checks.
+    let mut a = auto(&dir).with_xfa_time_scale(100);
     let warns = |out: &Value, text: &str| out["warnings"].as_array().is_some_and(|w| w.iter().any(|w| w.as_str().is_some_and(|w| w.contains(text))));
     let opened = ok(&mut a, "doc_open", json!({ "path": "errors.pdf" }));
     let doc = opened["doc"].as_u64().unwrap();
