@@ -5111,7 +5111,7 @@ fn take_js_errors_leaves_the_alerts_for_take_js_output() {
     assert!(s.take_js_errors(id).is_empty());
     let out = s.take_js_output(id);
     assert!(out.errors.is_empty(), "{out:?}");
-    assert_eq!(out.alerts, ["opened"]);
+    assert_eq!(out.alerts, [js::Message::plain("opened")]);
 }
 
 #[test]
