@@ -7714,7 +7714,7 @@ fn doc_open_and_form_fill_report_the_errors_of_the_forms_scripts() {
     // A button click after the open returns no error, because doc_open took the open's error.
     let r = ok(&mut a, "js_run", json!({ "doc": doc, "script": "", "field": "hello" }));
     assert!(r["error"].is_null(), "{r}");
-    assert_eq!(r["alerts"], json!(["Hello 2"]), "{r}");
+    assert_eq!(r["alerts"], json!([{ "message": "Hello 2", "title": null, "icon": "error", "buttons": "ok" }]), "{r}");
     let filled = ok(&mut a, "form_fill", json!({ "doc": doc, "values": { "qty": "4" } }));
     assert!(warns(&filled, "fill failed"), "{filled}");
     assert!(!warns(&filled, "open failed"), "{filled}");
