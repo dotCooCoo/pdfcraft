@@ -280,6 +280,37 @@ fn undoing_delivered_redactions_asks_where() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Once every Apply redactions step is delivered, Save writes in place again even though the web
+/// build keeps the steps counted for the `_Redacted` name.
+#[test]
+fn delivered_redactions_save_in_place() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-redacted-delivered-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("contract.pdf");
+    std::fs::write(&original, include_bytes!("../data/form.pdf")).unwrap();
+    let path = original.to_string_lossy().into_owned();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_path(&path);
+        app
+    });
+    crate::support::settle(&mut h);
+    h.state_mut().execute("redact.pages");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state_mut().execute("redact.apply"));
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    // The state a web save leaves: the step is delivered and stays counted.
+    h.state_mut().views[0].redactions_downloaded = 1;
+    assert!(h.state_mut().save_active(SaveTarget::InPlace), "Save writes in place after the step is delivered");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undo of Apply redactions brings back Save in place; Redo makes Save ask where again.
 #[test]
 fn undoing_apply_redactions_saves_in_place_again() {

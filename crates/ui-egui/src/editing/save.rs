@@ -49,7 +49,10 @@ impl PdfCraftApp {
         let Some(doc) = self.session.get(id) else { return false };
         let (name, path) = (doc.name.clone(), doc.path.clone());
         // After Apply redactions, Save asks where and proposes the name with `_Redacted`.
+        // In the web build a delivered step stays counted, so only the steps applied since the
+        // last delivery make Save ask where.
         let redacted = self.views.get(index).is_some_and(|v| v.redactions_applied > 0);
+        let not_delivered = self.views.get(index).is_some_and(|v| v.redactions_applied > v.redactions_downloaded);
         let name = if redacted { pdfcraft_engine::redacted_file_name(&name) } else { name };
         // Undo past a saved Apply redactions brings back content that the file on disk has
         // redacted: ask where instead of writing it over that file. In the web build a delivered
@@ -59,7 +62,7 @@ impl PdfCraftApp {
             .views
             .get(index)
             .is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off || v.redactions_applied < v.redactions_downloaded);
-        let target = if redacted || unredacted { SaveTarget::As } else { target };
+        let target = if not_delivered || unredacted { SaveTarget::As } else { target };
         #[cfg(not(target_arch = "wasm32"))]
         {
             let doc_path = path.clone();
