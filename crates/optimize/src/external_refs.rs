@@ -373,6 +373,7 @@ fn discard_bookmarks(doc: &mut Document) -> Result<usize, OptimizeError> {
 /// changed; a link counts whether it was removed or kept for its other actions.
 pub(crate) fn discard(doc: &mut Document, pages: &[ObjRef]) -> Result<(usize, usize), OptimizeError> {
     let mut links = 0;
+    let mut removed_links = HashSet::new();
     for p in pages {
         let Some(pd) = doc.get(*p).as_dict().cloned() else { continue };
         let Some(annots) = pd.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()) else { continue };
@@ -393,7 +394,11 @@ pub(crate) fn discard(doc: &mut Document, pages: &[ObjRef]) -> Result<(usize, us
                 _ => None,
             };
             let Some(action) = stripped else {
-                keep.push(x.clone());
+                if !matches!(x, Object::Ref(r) if removed_links.contains(r)) {
+                    keep.push(x.clone());
+                } else {
+                    changed = true;
+                }
                 continue;
             };
             links += 1;
@@ -408,6 +413,7 @@ pub(crate) fn discard(doc: &mut Document, pages: &[ObjRef]) -> Result<(usize, us
                 Object::Ref(r) => {
                     doc.set(*r, Object::Dict(d));
                     if removed {
+                        removed_links.insert(*r);
                         changed = true;
                     } else {
                         keep.push(x.clone());

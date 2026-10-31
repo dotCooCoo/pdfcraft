@@ -2437,6 +2437,38 @@ fn links_and_bookmarks_to_other_documents_are_discarded_and_links_within_stay() 
 }
 
 #[test]
+fn repeated_indirect_remote_link_is_removed_from_one_page() {
+    let (mut doc, p, _) = linked_doc(
+        |doc, _| {
+            let link = doc.add(link_with(Some(action("GoToR", None)), None));
+            vec![Object::Ref(link), Object::Ref(link)]
+        },
+        &[],
+    );
+    let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+    assert_eq!(report.external_links, 1, "{report:?}");
+    assert!(annots_of(&doc, p).is_empty(), "both references leave the page");
+}
+
+#[test]
+fn shared_indirect_remote_link_with_empty_next_is_removed_from_every_page() {
+    let (mut doc, first, items) = linked_doc(|_, _| Vec::new(), &[action("Named", None), action("GoToR", None)]);
+    let second = page(&mut doc, &[], "BT ET");
+    let link = doc.add(link_with(Some(action("GoToR", Some(Object::Array(vec![Object::Null])))), None));
+    for p in [first, second] {
+        doc.update_dict(p, |d| d.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(link)]))).unwrap();
+    }
+    doc.update_dict(items[0], |d| d.set(b"First".to_vec(), Object::Ref(items[1]))).unwrap();
+    let report = optimize(&mut doc, &Settings { discard_external_refs: true, ..Settings::default() }).unwrap();
+    assert_eq!(report.external_links, 1, "{report:?}");
+    assert_eq!(report.external_bookmarks, 1, "{report:?}");
+    assert!(doc.get(items[1]).as_dict().unwrap().get(b"A").is_none(), "the shared bookmark has no action");
+    assert!(annots_of(&doc, first).is_empty(), "the first page loses the link");
+    assert!(annots_of(&doc, second).is_empty(), "the second page loses the link");
+    assert!(doc.get(link).as_dict().unwrap().get(b"A").is_none(), "the shared link has no action");
+}
+
+#[test]
 fn an_action_to_another_document_hands_its_place_to_the_actions_after_it() {
     let (doc, p, _) = linked_doc(
         |doc, p| {
