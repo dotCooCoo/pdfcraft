@@ -58,10 +58,7 @@ impl PdfCraftApp {
         // redacted: ask where instead of writing it over that file. In the web build a delivered
         // step stays counted in `redactions_applied`, so fewer steps than were delivered means one
         // was undone.
-        let unredacted = self
-            .views
-            .get(index)
-            .is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off || v.redactions_applied < v.redactions_downloaded);
+        let unredacted = self.views.get(index).is_some_and(restores_saved_redactions);
         // The restored content is not a redacted copy: propose the name without `_Redacted`, so
         // the dialog's default is not the redacted file.
         let name = if unredacted && !redacted { unredacted_file_name(&name) } else { name };
@@ -80,6 +77,12 @@ impl PdfCraftApp {
                     let dialog = in_document_folder(dialog, doc_path.as_deref());
                     // The bytes are taken once the user has chosen, so edits made meanwhile are saved too.
                     self.ask_one(crate::pickers::Ask::Save(dialog), None, move |app, dest| {
+                        // An Undo past saved redactions while the dialog was open makes the name
+                        // it proposed wrong: ask again with the name for the restored content.
+                        if !unredacted && let Some(index) = app.views.iter().position(|v| v.id == id && restores_saved_redactions(v)) {
+                            app.save_then(index, SaveTarget::As, after);
+                            return;
+                        }
                         app.save_doc_to_then(id, &dest.to_string_lossy(), target, Box::new(after));
                     });
                     return false;
@@ -258,6 +261,13 @@ pub(crate) fn is_mail_temp_copy(path: &str) -> bool {
         || in_outlook_cache("/temporary internet files/content.outlook/")
         || p.contains("/packages/microsoft.outlookforwindows_")
         || p.contains("/library/containers/com.apple.mail/data/library/mail downloads/")
+}
+
+/// Whether `view` holds content that a saved or delivered Apply redactions removed: a saved step
+/// is undone, cannot be redone, or (in the web build) fewer steps are in effect than were
+/// delivered.
+fn restores_saved_redactions(view: &crate::DocView) -> bool {
+    view.redactions_undone_after_save > 0 || view.saved_redactions_cut_off || view.redactions_applied < view.redactions_downloaded
 }
 
 /// `name` without the `_Redacted` that [`pdfcraft_engine::redacted_file_name`] adds before the
