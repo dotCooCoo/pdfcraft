@@ -77,9 +77,11 @@ impl PdfCraftApp {
                     let dialog = in_document_folder(dialog, doc_path.as_deref());
                     // The bytes are taken once the user has chosen, so edits made meanwhile are saved too.
                     self.ask_one(crate::pickers::Ask::Save(dialog), None, move |app, dest| {
-                        // An Undo past saved redactions while the dialog was open makes the name
-                        // it proposed wrong: ask again with the name for the restored content.
-                        if !unredacted && let Some(index) = app.views.iter().position(|v| v.id == id && restores_saved_redactions(v)) {
+                        // An Apply redactions or an Undo of one while the dialog was open makes the
+                        // name it proposed wrong: ask again with the name for the current content.
+                        let asked = (redacted, unredacted);
+                        let changed = |v: &crate::DocView| v.id == id && (v.redactions_applied > 0, restores_saved_redactions(v)) != asked;
+                        if let Some(index) = app.views.iter().position(changed) {
                             app.save_then(index, SaveTarget::As, after);
                             return;
                         }

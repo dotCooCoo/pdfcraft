@@ -361,6 +361,45 @@ fn undoing_saved_redactions_while_the_save_dialog_is_open_asks_again() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Undo of Apply redactions while the Save dialog that proposed the `_Redacted` name is open
+/// makes Save ask again, so the unredacted content is not saved under that name.
+#[test]
+fn undoing_apply_redactions_while_the_save_dialog_is_open_asks_again() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-redacted-dialog-unapply-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("contract.pdf");
+    std::fs::write(&original, include_bytes!("../data/form.pdf")).unwrap();
+    let path = original.to_string_lossy().into_owned();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_path(&path);
+        app
+    });
+    crate::support::settle(&mut h);
+    h.state_mut().execute("redact.pages");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state_mut().execute("redact.apply"));
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    let copy = dir.join("contract_Redacted.pdf");
+    h.state_mut().pick_override = Some(vec![copy.to_string_lossy().into_owned()]);
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace));
+    h.state_mut().execute("edit.undo");
+    assert_eq!(h.state().views[0].redactions_applied, 0);
+    let elsewhere = dir.join("contract_copy.pdf");
+    h.state_mut().pick_override = Some(vec![elsewhere.to_string_lossy().into_owned()]);
+    h.run_steps(4);
+    h.state_mut().pick_override = None;
+    assert!(!copy.exists(), "the unredacted content is not saved under the _Redacted name");
+    assert!(elsewhere.exists(), "Save asked again and wrote where the user chose");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undo of Apply redactions brings back Save in place; Redo makes Save ask where again.
 #[test]
 fn undoing_apply_redactions_saves_in_place_again() {
