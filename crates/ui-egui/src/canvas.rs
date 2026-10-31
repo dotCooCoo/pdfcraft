@@ -464,8 +464,9 @@ pub struct DocView {
     /// Set when Apply redactions runs while saved Apply redactions steps are undone: Redo can no
     /// longer bring those steps back, so Save asks where until a desktop save or Revert clears it.
     pub saved_redactions_cut_off: bool,
-    /// `redactions_applied` at the last web download, which Revert restores. A desktop save
-    /// leaves it at 0.
+    /// `redactions_applied` at the last web download, which Revert restores. While
+    /// `redactions_applied` is below it, a delivered step is undone and Save asks where. A desktop
+    /// save leaves it at 0.
     pub redactions_downloaded: usize,
     /// A crop rectangle being dragged (Crop tool).
     pub crop_drag: crate::crop::CropDrag,

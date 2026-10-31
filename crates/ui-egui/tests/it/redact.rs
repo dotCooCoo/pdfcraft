@@ -229,6 +229,57 @@ fn redoing_a_new_apply_after_undoing_saved_redactions_still_asks_where() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// In the web build a delivered save keeps `redactions_applied` and records it in
+/// `redactions_downloaded`. Undo past a delivered Apply redactions, or a new Apply after it, makes
+/// Save ask where, so a host does not write the restored content over the redacted copy.
+#[test]
+fn undoing_delivered_redactions_asks_where() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-redacted-delivered-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("contract.pdf");
+    std::fs::write(&original, include_bytes!("../data/form.pdf")).unwrap();
+    let path = original.to_string_lossy().into_owned();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_path(&path);
+        app
+    });
+    crate::support::settle(&mut h);
+    h.state_mut().execute("redact.pages");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state_mut().execute("redact.apply"));
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    // The state a web save leaves: the step is delivered and stays counted.
+    h.state_mut().views[0].redactions_downloaded = 1;
+    h.state_mut().execute("edit.undo");
+    h.run_steps(3);
+    let elsewhere = dir.join("contract_restored.pdf");
+    h.state_mut().pick_override = Some(vec![elsewhere.to_string_lossy().into_owned()]);
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace), "Save asks where after Undo past a delivered step");
+    h.run_steps(3);
+    h.state_mut().pick_override = None;
+    assert!(elsewhere.exists());
+    // A new Apply after Undo past a delivered step cannot be redone back to the delivered one.
+    h.state_mut().views[0].redactions_downloaded = 1;
+    h.state_mut().views[0].redactions_applied = 0;
+    h.state_mut().execute("redact.pages");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert!(h.state_mut().execute("redact.apply"));
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(4);
+    assert!(h.state().views[0].saved_redactions_cut_off);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Undo of Apply redactions brings back Save in place; Redo makes Save ask where again.
 #[test]
 fn undoing_apply_redactions_saves_in_place_again() {

@@ -52,8 +52,13 @@ impl PdfCraftApp {
         let redacted = self.views.get(index).is_some_and(|v| v.redactions_applied > 0);
         let name = if redacted { pdfcraft_engine::redacted_file_name(&name) } else { name };
         // Undo past a saved Apply redactions brings back content that the file on disk has
-        // redacted: ask where instead of writing it over that file.
-        let unredacted = self.views.get(index).is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off);
+        // redacted: ask where instead of writing it over that file. In the web build a delivered
+        // step stays counted in `redactions_applied`, so fewer steps than were delivered means one
+        // was undone.
+        let unredacted = self
+            .views
+            .get(index)
+            .is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off || v.redactions_applied < v.redactions_downloaded);
         let target = if redacted || unredacted { SaveTarget::As } else { target };
         #[cfg(not(target_arch = "wasm32"))]
         {
