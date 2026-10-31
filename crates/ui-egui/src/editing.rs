@@ -20,7 +20,7 @@ pub use save::{SaveTarget, write_atomically};
 #[cfg(test)]
 pub(crate) use save::{is_mail_temp_copy, save_dialog_folder};
 #[cfg(test)]
-use save::{write_atomically_syncing, write_atomically_with};
+use save::{unredacted_file_name, write_atomically_syncing, write_atomically_with};
 
 /// Text typed into a new text box that isn't added to the page yet.
 fn new_text_typed(v: &crate::DocView) -> bool {

@@ -62,6 +62,9 @@ impl PdfCraftApp {
             .views
             .get(index)
             .is_some_and(|v| v.redactions_undone_after_save > 0 || v.saved_redactions_cut_off || v.redactions_applied < v.redactions_downloaded);
+        // The restored content is not a redacted copy: propose the name without `_Redacted`, so
+        // the dialog's default is not the redacted file.
+        let name = if unredacted && !redacted { unredacted_file_name(&name) } else { name };
         let target = if not_delivered || unredacted { SaveTarget::As } else { target };
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -255,6 +258,20 @@ pub(crate) fn is_mail_temp_copy(path: &str) -> bool {
         || in_outlook_cache("/temporary internet files/content.outlook/")
         || p.contains("/packages/microsoft.outlookforwindows_")
         || p.contains("/library/containers/com.apple.mail/data/library/mail downloads/")
+}
+
+/// `name` without the `_Redacted` that [`pdfcraft_engine::redacted_file_name`] adds before the
+/// extension ("contract_Redacted.pdf" gives "contract.pdf"). Any other name is returned as it is.
+pub(crate) fn unredacted_file_name(name: &str) -> String {
+    let cut = name.len().saturating_sub(4);
+    let (stem, ext) = match (name.get(..cut), name.get(cut..)) {
+        (Some(stem), Some(ext)) if ext.eq_ignore_ascii_case(".pdf") => (stem, ext),
+        _ => (name, ""),
+    };
+    match stem.strip_suffix("_Redacted") {
+        Some(base) if !base.is_empty() => format!("{base}{ext}"),
+        _ => name.to_string(),
+    }
 }
 
 /// The folder a Save As style dialog should open in for a document stored at `path`: the
